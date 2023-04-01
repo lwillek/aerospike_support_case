@@ -5,6 +5,10 @@ Ansible play which collects relevant information and attaches them to an existin
 The purpose of this play is to minimize the time required between case opening and the submission of the necessary data
 needed by Aerospike support to start investigation. The rationale behind this play is to shorten the mean time to repair (MTTR).
 
+Disclaimer:
+- This playbook is an independent effort. It is not endorsed or supported by any organisation.
+- Aerospike is a registered trademark. Any references to their brand name are for clarification purposes only.
+
 ## How To: 
 After the Aerospike Case has been filed, create yourself via Aerospike Support Portal an FTP account.
  - The FTP credentials will be sent to you via mail immediately, and needed to use this play.
