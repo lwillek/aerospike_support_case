@@ -1,0 +1,175 @@
+---
+
+# Ansible play which collects relevant information and attaches them to an existing Aerospike Support Case.
+#
+# The purpose of this play is to minimize the time required between case opening and the submission of the necessary data
+# needed by Aerospike support to start investigation. The rationale behind this play is to shorten the mean time to repair (MTTR).
+# 
+# How-To: 
+# After the Aerospike Case has been filed, create yourself via Aerospike Support Portal an FTP account.
+# - The FTP credentials will be sent to you via mail immediately, and needed to use this play.
+# - It is REQUIRED to use the specific FTP credentials in order to use this play.
+# - You SHALL NOT use your regular support portal login credentials, as specific FTP credentials are REQUIRED.
+#
+# You are free to run this play interactive, as you will be asked for your FTP credentials.
+#   Example:
+#   $ ansible-playbook aerospike_support.yml -i inventories/my/inventory_file.yml
+#
+# Another way is to provide extra variables, which enables the automated use of this play within any CI/CD pipeline.
+#   Example:
+#   $ ansible-playbook aerospike_support.yml -i inventories/my/inventory_file.yml \
+#                                            -l "aerospike_cluster_nodes" \
+#                                            -e "aerospike_support_case=12345678" \
+#                                            -e "aerospike_support_ftp_username=12345678-username@example.org" \
+#                                            -e "aerospike_support_ftp_password=secret_value"
+#
+# SPDX-License-Identifier: 0BSD
+# BSD Zero Clause License
+#
+# Copyright (C) 2023 by Lutz Willek <lutz.willek@belug.de>
+#
+# Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR 
+# CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+# NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+
+- hosts: all
+  ignore_unreachable: true
+  any_errors_fatal: true
+  become: true
+  vars:
+    aerospike_support_ftp_host: asftp.aerospike.com
+    aerospike_support_ftp_options: !unsafe '-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o Port=2222'
+    provide_logfile: true         # Set this to true in case you want to provide the aerospike.log file.
+    provide_collectinfo: true     # Set this to true in case you want to provide the asadm collectinfo file.
+    ansible_debuginfo: false      # Set this to true in case you want to see some Ansible play debug output.
+  vars_prompt:
+  - name: aerospike_support_case
+    prompt: Enter the Aerospike Support case
+    private: false
+
+  - name: aerospike_support_ftp_username
+    prompt: Enter your Aerospike FTP username for this Aerospike case
+    private: false
+
+  - name: aerospike_support_ftp_password
+    prompt: Enter your Aerospike FTP password for this Aerospike case
+    unsafe: true
+    private: true
+
+  tasks:
+  - name: AEROSPIKE SUPPORT CASE | Ensure expect package is installed
+    package:
+      name: expect
+      state: present
+    when: provide_logfile == true or provide_collectinfo == true
+
+  - name: AEROSPIKE SUPPORT CASE | adasm
+    block:
+      - name: AEROSPIKE SUPPORT CASE | Execute adasm collectinfo
+        command: asadm -e collectinfo
+        when: provide_collectinfo == true
+
+    rescue:
+      - name: AEROSPIKE SUPPORT CASE | Rescue | Skip adasm collectinfo from now on
+        debug:
+          msg: "The adasm program could not be found - skipping"
+        register: adasm_not_found
+        when: provide_collectinfo == true
+
+  - name: AEROSPIKE SUPPORT CASE | Locate the most recent collect_info file
+    shell: 'ls -1r /tmp/collect_info_*tgz|head -1'
+    register: collect_info__file_name
+    when: provide_collectinfo == true and adasm_not_found is not defined
+
+  - name: AEROSPIKE SUPPORT CASE | Output facts - Debug information - collectinfo
+    debug:
+      msg:
+        - "Aerospike host name: {{ ansible_hostname }}.{{ domain_name }}"
+        - "Aerospike Case: {{ aerospike_support_case }}"
+        - "Aerospike FTP host: {{ aerospike_support_ftp_host }}"
+        - "FTP Username: {{ aerospike_support_ftp_username }}"
+        - "collectinfo most recent file name: {{ collect_info__file_name.stdout }} ({{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }})"
+        - "provide_collectinfo ftp command: scp {{ aerospike_support_ftp_options }} {{ collect_info__file_name.stdout | default('undefined', true) }} {{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/{{ ansible_hostname }}.{{ domain_name }}__{{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}"
+    when: provide_collectinfo == true and ansible_debuginfo == true and adasm_not_found is not defined
+
+  - name: "AEROSPIKE SUPPORT CASE | Upload most recent collect_info file to {{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/"
+    shell: |
+      set timeout 60
+      set send_slow {1 .01 }
+      spawn scp {{ aerospike_support_ftp_options }} {{ source }} {{destination }}
+      expect "Password:"
+      send "{{ aerospike_support_ftp_password }}\n"
+      expect eof
+    args:
+      executable: expect
+    vars:
+       source: "{{ collect_info__file_name.stdout }}"
+       destination: "{{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/{{ ansible_hostname }}.{{ domain_name }}__{{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}"
+    ignore_errors: true
+    no_log: true
+    when: provide_collectinfo == true and adasm_not_found is not defined
+
+  - name: AEROSPIKE SUPPORT CASE | aerospike.log 
+    block:
+    - name: AEROSPIKE SUPPORT CASE | Register aerospike.log timestamp
+      shell: 'date +"%Y%m%d_%H%M%S"'
+      register: timestamp
+      when: provide_logfile == true
+  
+    - name: AEROSPIKE SUPPORT CASE | Compress aerospike.log file
+      archive:
+        path: /var/log/aerospike/aerospike.log
+        dest: "/tmp/aerospike_log_{{ timestamp.stdout }}.tgz"
+      when: provide_logfile == true
+
+    rescue:
+      - name: AEROSPIKE SUPPORT CASE | Rescue | Skip aerospike.log from now on
+        debug:
+          msg: "No aerospike.log file could not be found - skipping"
+        register: logfile_not_found
+        when: provide_collectinfo == true
+
+  - name: AEROSPIKE SUPPORT CASE | Locate the most recent compressed aerospike.log file
+    shell: 'ls -1r /tmp/aerospike_log_*tgz|head -1'
+    register: aerospike_log__file_name
+    when: provide_logfile == true and logfile_not_found is not defined
+
+  - name: AEROSPIKE SUPPORT CASE | Output facts - Debug information - aerospike.log
+    debug:
+      msg:
+        - "Aerospike host name: {{ ansible_hostname }}.{{ domain_name }}"
+        - "Aerospike Case: {{ aerospike_support_case }}"
+        - "Aerospike FTP host: {{ aerospike_support_ftp_host }}"
+        - "FTP Username: {{ aerospike_support_ftp_username }}"
+        - "Compressed aerospike.log most recent file name: {{ aerospike_log__file_name.stdout | default('undefined', true) }} ({{ aerospike_log__file_name.stdout | default('undefined', true) | regex_replace('^.*/(.*)$', '\\1') }})"
+        - "provide_logfile ftp command: scp {{ aerospike_support_ftp_options }} {{ aerospike_log__file_name.stdout | default('undefined', true) }} {{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/{{ ansible_hostname }}.{{ domain_name }}__{{ aerospike_log__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}"
+    when: provide_logfile == true and ansible_debuginfo == true and logfile_not_found is not defined
+
+  - name: "AEROSPIKE SUPPORT CASE | Upload most recent aerospike.log file to {{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/"
+    shell: |
+      set timeout 60
+      set send_slow {1 .01 }
+      spawn scp {{ aerospike_support_ftp_options }} {{ source }} {{destination }}
+      expect "Password:"
+      send "{{ aerospike_support_ftp_password }}\n"
+      expect eof
+    args:
+      executable: expect
+    vars:
+       source: "{{ aerospike_log__file_name.stdout }}"
+       destination: "{{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/{{ ansible_hostname }}.{{ domain_name }}__{{ aerospike_log__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}"
+    ignore_errors: true
+    no_log: true      # you don't want to show passwords in your logs
+    when: provide_logfile == true and logfile_not_found is not defined
+
+  - name: "AEROSPIKE SUPPORT CASE | Operator's information on next steps"
+    debug:
+      msg:
+        - "Log in now with your FTP credentials to https://{{ aerospike_support_ftp_host }}/#/Cases/{{ aerospike_support_case}}/"
+        - "Check if all expected files have been uploaded to Aerospike."
+        - "Update the case now with further informations."
+    when: provide_logfile == true or provide_collectinfo == true
