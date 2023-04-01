@@ -153,7 +153,7 @@
        source: "{{ aerospike_log__file_name.stdout }}"
        destination: "{{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case}}/{{ ansible_hostname }}.{{ domain_name }}__{{ aerospike_log__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}"
     ignore_errors: true
-    no_log: true      # you don't want to show passwords in your logs
+    no_log: true
     when: provide_logfile == true and logfile_not_found is not defined
 
   - name: "AEROSPIKE SUPPORT CASE | Operator's information on next steps"
