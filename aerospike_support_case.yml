@@ -6,7 +6,7 @@
 # For full license text see https://github.com/lwillek/aerospike_support_case/blob/main/LICENSE
 # SPDX-License-Identifier: 0BSD
 
-- name: Ansible play which collects relevant information and attaches them to an existing Aerospike Support Case
+- name: "Ansible play which collects relevant information and attaches them to an existing Aerospike Support Case"
   hosts: all
   ignore_unreachable: true
   any_errors_fatal: true
@@ -21,65 +21,58 @@
     provide_collectinfo: true     # Set this to true in case you want to provide the asadm collectinfo file.
     ansible_debuginfo: false      # Set this to true in case you want to see some Ansible play debug output.
   vars_prompt:
-    - name: aerospike_support_case
+    - name: "aerospike_support_case"
       prompt: Enter the Aerospike Support case
       private: false
 
-    - name: aerospike_support_ftp_username
+    - name: "aerospike_support_ftp_username"
       prompt: Enter your Aerospike FTP username for this Aerospike case
       private: false
 
-    - name: aerospike_support_ftp_password
+    - name: "aerospike_support_ftp_password"
       prompt: Enter your Aerospike FTP password for this Aerospike case
       unsafe: true
       private: true
-
   tasks:
-    - name: AEROSPIKE SUPPORT CASE | Ensure expect package is installed
+    - name: "AEROSPIKE SUPPORT CASE | Ensure expect package is installed"
       ansible.builtin.package:
         name: expect
         state: present
       when: provide_logfile | bool or provide_collectinfo | bool
-
-    - name: AEROSPIKE SUPPORT CASE | Ensure temporary known_hosts file is created
+    - name: "AEROSPIKE SUPPORT CASE | Ensure temporary known_hosts file is created"
       ansible.builtin.tempfile:
         state: file
         prefix: aerospike_known_hosts
       register: known_hosts
       when: provide_logfile | bool or provide_collectinfo | bool
-
-    - name: AEROSPIKE SUPPORT CASE | Ensure temporary known_hosts file is populated
+    - name: "AEROSPIKE SUPPORT CASE | Ensure temporary known_hosts file is populated"
       ansible.builtin.copy:
-        content: "{{ aerospike_support_ftp_host }} {{ aerospike_support_ftp_host_key }}"
+        content: "{{ aerospike_support_ftp_host }} {{ aerospike_support_ftp_host_key }}\n"
         dest: "{{ known_hosts.path }}"
         owner: root
         group: root
         mode: '0600'
       when: provide_logfile | bool or provide_collectinfo | bool
-
-    - name: AEROSPIKE SUPPORT CASE | adasm
+    - name: "AEROSPIKE SUPPORT CASE | adasm"
       block:
-        - name: AEROSPIKE SUPPORT CASE | Execute adasm collectinfo
+        - name: "AEROSPIKE SUPPORT CASE | Execute adasm collectinfo"
           ansible.builtin.command: asadm -e collectinfo
           changed_when: true
           when: provide_collectinfo | bool
-
       rescue:
-        - name: AEROSPIKE SUPPORT CASE | Rescue | Skip adasm collectinfo from now on
+        - name: "AEROSPIKE SUPPORT CASE | Rescue | Skip adasm collectinfo from now on"
           ansible.builtin.debug:
             msg: "The adasm program could not be found - skipping"
           register: adasm_not_found
           when: provide_collectinfo | bool
-
-    - name: AEROSPIKE SUPPORT CASE | Locate the most recent collect_info file
+    - name: "AEROSPIKE SUPPORT CASE | Locate the most recent collect_info file"
       ansible.builtin.shell: 'set -o pipefail && ls -1r /tmp/collect_info_*tgz | head -1'
       args:
         executable: bash
       register: collect_info__file_name
       changed_when: true
       when: provide_collectinfo | bool and adasm_not_found is not defined
-
-    - name: AEROSPIKE SUPPORT CASE | Output facts - Debug information - collectinfo
+    - name: "AEROSPIKE SUPPORT CASE | Output facts - Debug information - collectinfo"
       ansible.builtin.debug:
         msg:
           - "Aerospike FQDN node name: {{ ansible_hostname }}.{{ domain_name }}"
@@ -87,9 +80,8 @@
           - "Aerospike FTP host: {{ aerospike_support_ftp_host }}"
           - "FTP Username: {{ aerospike_support_ftp_username }}"
           - "collectinfo most recent file name: {{ collect_info__file_name.stdout }} ({{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }})"
-          - "provide_collectinfo FTP command: scp -o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes {{ aerospike_support_ftp_options }} {{ collect_info__file_name.stdout | default('undefined', true) }} {{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case }}/{{ ansible_hostname }}.{{ domain_name }}__{{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}" # yamllint disable-line rule:line-length
+          - "provide_collectinfo FTP command: scp -o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes {{ aerospike_support_ftp_options }} {{ collect_info__file_name.stdout | default('undefined', true) }} {{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case }}/{{ ansible_hostname }}.{{ domain_name }}__{{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}" # yamllint disable-line rule:line-length
       when: provide_collectinfo | bool and ansible_debuginfo | bool and adasm_not_found is not defined
-
     - name: "AEROSPIKE SUPPORT CASE | Upload collect_info"
       block:
         - name: "AEROSPIKE SUPPORT CASE | Upload most recent collect_info file to {{ aerospike_support_ftp_host }}"
@@ -104,25 +96,23 @@
           vars:
             source: "{{ collect_info__file_name.stdout }}"
             destination: "{{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case }}/{{ ansible_hostname }}.{{ domain_name }}__{{ collect_info__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}" # yamllint disable-line rule:line-length
-            ftp_options: !unsafe "-o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes"
+            ftp_options: '-o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes'
           changed_when: true
           when: provide_collectinfo | bool and adasm_not_found is not defined
-
       rescue:
-        - name: AEROSPIKE SUPPORT CASE | Rescue | upload failed
+        - name: "AEROSPIKE SUPPORT CASE | Rescue | upload failed"
           ansible.builtin.debug:
             msg: "The collect_info file upload failed - skipping"
           register: upload_failed
-
     - name: "AEROSPIKE SUPPORT CASE | aerospike.log"
       block:
-        - name: AEROSPIKE SUPPORT CASE | Register aerospike.log timestamp
+        - name: "AEROSPIKE SUPPORT CASE | Register aerospike.log timestamp"
           ansible.builtin.command: 'date +"%Y%m%d_%H%M%S"'
           register: timestamp
           changed_when: true
           when: provide_logfile | bool
 
-        - name: AEROSPIKE SUPPORT CASE | Compress aerospike.log file
+        - name: "AEROSPIKE SUPPORT CASE | Compress aerospike.log file"
           ansible.legacy.archive:
             path: /var/log/aerospike/aerospike.log
             dest: "/tmp/aerospike_log_{{ timestamp.stdout }}.tgz"
@@ -130,23 +120,20 @@
             group: root
             mode: "0600"
           when: provide_logfile | bool
-
       rescue:
-        - name: AEROSPIKE SUPPORT CASE | Rescue | Skip aerospike.log from now on
+        - name: "AEROSPIKE SUPPORT CASE | Rescue | Skip aerospike.log from now on"
           ansible.builtin.debug:
             msg: "No aerospike.log file could not be found - skipping"
           register: logfile_not_found
           when: provide_collectinfo | bool
-
-    - name: AEROSPIKE SUPPORT CASE | Locate the most recent compressed aerospike.log file
+    - name: "AEROSPIKE SUPPORT CASE | Locate the most recent compressed aerospike.log file"
       ansible.builtin.shell: 'set -o pipefail && ls -1r /tmp/aerospike_log_*tgz | head -1'
       args:
         executable: bash
       register: aerospike_log__file_name
       changed_when: true
       when: provide_logfile | bool and logfile_not_found is not defined
-
-    - name: AEROSPIKE SUPPORT CASE | Output facts - Debug information - aerospike.log
+    - name: "AEROSPIKE SUPPORT CASE | Output facts - Debug information - aerospike.log"
       ansible.builtin.debug:
         msg:
           - "Aerospike host name: {{ ansible_hostname }}.{{ domain_name }}"
@@ -156,7 +143,6 @@
           - "Compressed aerospike.log most recent file name: {{ aerospike_log__file_name.stdout | default('undefined', true) }} ({{ aerospike_log__file_name.stdout | default('undefined', true) | regex_replace('^.*/(.*)$', '\\1') }})" # yamllint disable-line rule:line-length
           - "provide_logfile ftp command: scp -o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes {{ aerospike_support_ftp_options }} {{ aerospike_log__file_name.stdout | default('undefined', true) }} {{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case }}/{{ ansible_hostname }}.{{ domain_name }}__{{ aerospike_log__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}" # yamllint disable-line rule:line-length
       when: provide_logfile | bool and ansible_debuginfo | bool and logfile_not_found is not defined
-
     - name: "AEROSPIKE SUPPORT CASE | Upload aerospike.log"
       block:
         - name: "AEROSPIKE SUPPORT CASE | Upload most recent aerospike.log file to {{ aerospike_support_ftp_host }}"
@@ -171,22 +157,19 @@
           vars:
             source: "{{ aerospike_log__file_name.stdout }}"
             destination: "{{ aerospike_support_ftp_username }}@{{ aerospike_support_ftp_host }}:/Cases/{{ aerospike_support_case }}/{{ ansible_hostname }}.{{ domain_name }}__{{ aerospike_log__file_name.stdout | regex_replace('^.*/(.*)$', '\\1') }}" # yamllint disable-line rule:line-length
-            ftp_options: !unsafe "-o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes"
+            ftp_options: '-o UserKnownHostsFile={{ known_hosts.path }} -o StrictHostKeyChecking=yes'
           changed_when: true
           when: provide_logfile | bool and logfile_not_found is not defined
-
       rescue:
-        - name: AEROSPIKE SUPPORT CASE | Rescue | upload failed
+        - name: "AEROSPIKE SUPPORT CASE | Rescue | upload failed"
           ansible.builtin.debug:
             msg: "The aerospike.log file upload failed - skipping"
           register: upload_failed
-
-    - name: AEROSPIKE SUPPORT CASE | Ensure temporary known_hosts file is removed
+    - name: "AEROSPIKE SUPPORT CASE | Ensure temporary known_hosts file is removed"
       ansible.builtin.file:
         path: "{{ known_hosts.path }}"
         state: absent
       when: known_hosts.path is defined
-
     - name: "AEROSPIKE SUPPORT CASE | Operator's information on next steps"
       ansible.builtin.debug:
         msg:
@@ -194,3 +177,8 @@
           - "Check if all expected files have been uploaded to Aerospike."
           - "Update the case now with further informations."
       when: provide_logfile | bool or provide_collectinfo | bool
+    - name: "AEROSPIKE SUPPORT CASE | Upload failed notification"
+      ansible.builtin.debug:
+        msg:
+          - "At least one opload failed!"
+      when: upload_failed is defined
